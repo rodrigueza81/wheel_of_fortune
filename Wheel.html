@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Spinning Wheel with Values</title>
+<style>
+  html, body { height:100%; margin:0; background:#111; color:#eee; font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial; display:flex; justify-content:center; align-items:center; }
+  .wrap { text-align:center; width:520px; }
+  svg { width:100%; height:auto; display:block; background:linear-gradient(180deg,#111,#0b0b0b); border-radius:8px; }
+  .pointer { width:0;height:0;margin:-26px auto 8px;border-left:18px solid transparent;border-right:18px solid transparent;border-bottom:30px solid #222;filter: drop-shadow(0 3px 6px rgba(0,0,0,.6)); }
+  button { padding:10px 16px;border-radius:8px;border:0;cursor:pointer;background:#1f7;color:#002;font-weight:700; }
+  button:disabled { opacity:.6; cursor:not-allowed; }
+  .result { min-height:1.2rem; margin-top:8px; font-weight:700; color:#fff; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="pointer" aria-hidden="true"></div>
+  <svg id="wheel" viewBox="0 0 400 400" role="img" aria-label="Spinning wheel"></svg>
+  <button id="spinBtn">Spin</button>
+  <div class="result" id="result"></div>
+</div>
+
+<script>
+/* ================= CONFIG ================= */
+const segments = [
+  { text: '750', color: '#ffb3ba' },
+  { text: '700', color: '#ffdfba' },
+  { text: '800', color: '#ffffba' },
+  { text: '1200', color: '#baffc9' },
+  { text: 'Bankrupt', color: '#ffb3ba' },
+  { text: '2500', color: '#ffdfba' },
+  { text: '500', color: '#ffffba' },
+  { text: '1000', color: '#baffc9' },
+  { text: 'Spin Again', color: '#ffffba' }
+];
+
+const svg = document.getElementById('wheel');
+const CX = 200, CY = 200, R = 180;
+const SLICES = segments.length;
+const SLICE_ANGLE = 360 / SLICES;
+const spinBtn = document.getElementById('spinBtn');
+const resultEl = document.getElementById('result');
+
+/* ================ UTILS ================ */
+function polarToCartesian(cx, cy, r, angleDeg) {
+  const a = (angleDeg - 90) * Math.PI / 180;
+  return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
+}
+
+/* ================ BUILD WHEEL ================ */
+function buildWheel() {
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+  g.setAttribute('class','wheel-g');
+  g.style.transformOrigin = '50% 50%';
+
+  segments.forEach((seg, i) => {
+    const start = i * SLICE_ANGLE;
+    const end = start + SLICE_ANGLE;
+    const p1 = polarToCartesian(CX, CY, R, start);
+    const p2 = polarToCartesian(CX, CY, R, end);
+    const largeArc = SLICE_ANGLE > 180 ? 1 : 0;
+    const d = `M ${CX} ${CY} L ${p1.x} ${p1.y} A ${R} ${R} 0 ${largeArc} 1 ${p2.x} ${p2.y} Z`;
+
+    const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+    path.setAttribute('d', d);
+    path.setAttribute('fill', seg.color);
+    path.setAttribute('stroke','#111');
+    path.setAttribute('stroke-width','1');
+    g.appendChild(path);
+
+    const mid = start + SLICE_ANGLE / 2;
+    const lblPt = polarToCartesian(CX, CY, R * 0.65, mid);
+    const text = document.createElementNS('http://www.w3.org/2000/svg','text');
+    text.setAttribute('x', lblPt.x);
+    text.setAttribute('y', lblPt.y);
+    text.setAttribute('text-anchor','middle');
+    text.setAttribute('dominant-baseline','middle');
+    text.setAttribute('font-size','16');
+    text.setAttribute('fill','#111');
+    text.textContent = seg.text;
+    text.setAttribute('transform', `rotate(${mid}, ${lblPt.x}, ${lblPt.y})`);
+    g.appendChild(text);
+  });
+
+  svg.appendChild(g);
+  return g;
+}
+
+/* ================ SPIN LOGIC ================ */
+function createSpinner(gElement) {
+  let currentAngle = 0;
+  let spinning = false;
+  const easeOutCubic = t => 1 - Math.pow(1 - t, 3);
+
+  function indexFromAngle(angleDeg) {
+    const a = ((angleDeg % 360) + 360) % 360;
+    const pointerAngle = (360 - a) % 360;
+    return Math.floor(pointerAngle / SLICE_ANGLE) % SLICES;
+  }
+
+  async function spin() {
+    if (spinning) return;
+    spinning = true;
+    spinBtn.disabled = true;
+    resultEl.textContent = 'Spinning…';
+
+    const minTurns = 3, maxTurns = 5;
+    const turns = minTurns + Math.random() * (maxTurns - minTurns);
+    const finalOffset = Math.random() * 360;
+    const start = currentAngle;
+    const target = start + turns * 360 + finalOffset;
+    const duration = 2400 + Math.random() * 1000;
+    const t0 = performance.now();
+
+    return new Promise(resolve => {
+      function frame(t) {
+        const elapsed = t - t0;
+        const p = Math.min(1, elapsed / duration);
+        const eased = easeOutCubic(p);
+        const angle = start + (target - start) * eased;
+        gElement.style.transform = `rotate(${angle}deg)`;
+
+        if (p < 1) requestAnimationFrame(frame);
+        else {
+          currentAngle = target;
+          gElement.style.transform = `rotate(${currentAngle}deg)`;
+          const winnerIdx = indexFromAngle(currentAngle);
+          highlightSlice(winnerIdx);
+          resultEl.textContent = `Result: ${segments[winnerIdx].text}`;
+          spinBtn.disabled = false;
+          spinning = false;
+          resolve(winnerIdx);
+        }
+      }
+      requestAnimationFrame(frame);
+    });
+  }
+
+  function highlightSlice(idx) {
+    const paths = gElement.querySelectorAll('path');
+    paths.forEach((p,i)=>{
+      p.setAttribute('stroke-width', i === idx ? '3' : '1');
+      p.setAttribute('stroke', i === idx ? '#fff' : '#111');
+    });
+  }
+
+  return { spin };
+}
+
+/* ================ BOOT ================ */
+const wheelGroup = buildWheel();
+const spinner = createSpinner(wheelGroup);
+spinBtn.addEventListener('click', () => spinner.spin());
+</script>
+</body>
+</html>
