@@ -1,9 +1,9 @@
 const PUZZLES = [
-    "LA SALLE UNIVERSITY ",
+    "LA SALLE UNIVERSITY",
     "TEAM FOUR",
     "MOON KNIGHT",
     "POISON IVY",
-    "KILLER CROC "
+    "KILLER CROC"
 ];
 
 let puzzle = "";
