@@ -31,7 +31,7 @@ function createLetterButtons(){
         const letter = String.fromCharCode(i);
         const btn = document.createElement("button");
         btn.textContent = letter;
-        btn.onclick = () => guessedLetters(letter, btn);
+        btn.onclick = () => guessLetter(letter, btn);
         lettersDiv.appendChild(btn);
     }
 }
