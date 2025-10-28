@@ -9,11 +9,18 @@
 <body>
   <h1>🎯 Wheel of Fortune 🎯</h1>
 
-  <div id="puzzle-board"></div>
+  <div id="clue-section">
+    <div id="clue-box" class="clue-box">
+      <strong>Clue:</strong> <span id="clue-text">Press "New Clue" to get one!</span>
+    </div>
+    <button id="new-clue" class="clue-btn">🔁 New Clue</button>
+  </div>
 
-  <div id="letters"></div>
+  <div id="puzzle-board" class="board"></div>
 
-  <button id="reset">🔄 New Puzzle</button>
+  <div id="letters" class="letters"></div>
+
+  <button id="reset" class="reset-btn">🔄 New Puzzle</button>
 
   <script src="script.js"></script>
 </body>
