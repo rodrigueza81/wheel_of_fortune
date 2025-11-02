@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Wheel of Fortune</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: white;
+      color: black;
+      text-align: center;
+      padding: 30px;
+    }
+
+    h1 {
+      color: gold;
+    }
+
+    .board {
+      font-size: 2em;
+      letter-spacing: 6px;
+      margin: 20px auto;
+    }
+
+    .letters {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      max-width: 600px;
+      gap: 8px;
+      margin: 20px auto;
+    }
+
+    button {
+      background-color: #3498db;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      border-radius: 6px;
+      font-size: 1em;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+
+    button:hover:not(:disabled) {
+      background-color: #2980b9;
+    }
+
+    button:disabled {
+      background-color: #777;
+      cursor: not-allowed;
+    }
+
+    .clue-box {
+      margin-bottom: 10px;
+      font-size: 1.2em;
+    }
+
+    .money-display {
+      font-weight: bold;
+      color: lightgreen;
+      margin: 15px 0;
+    }
+
+    /* === Vowel Box Popup === */
+    .overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.6);
+      z-index: 90;
+    }
+
+    .vowel-box {
+      display: none;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background-color: white;
+      color: black;
+      border-radius: 10px;
+      padding: 20px;
+      width: 280px;
+      text-align: center;
+      z-index: 100;
+    }
+
+    .vowels {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .vowel {
+      background-color: #eee;
+      padding: 10px 15px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: bold;
+      font-size: 1.1em;
+    }
+
+    .vowel:hover {
+      background-color: #ddd;
+    }
+
+    .notification {
+      color: red;
+      font-weight: bold;
+      margin-top: 10px;
+    }
+
+    .close-btn {
+      margin-top: 12px;
+      background-color: #dc3545;
+    }
+  </style>
+</head>
+<body>
+  <h1>🍀 Wheel of Fortune 🍀</h1>
+
+  <div id="clue-box" class="clue-box">
+    <strong>Clue:</strong> <span id="clue-text">Press "New Puzzle" to start!</span>
+  </div>
+
+  <div id="puzzle-board" class="board"></div>
+
+  <div id="letters" class="letters"></div>
+
+  <button id="purchaseBtn">Purchase Vowel ($250)</button>
+  <div class="money-display">Money: $<span id="money">1000</span></div>
+  <div class="notification" id="notification"></div>
+
+  <button id="reset">🔄 New Puzzle</button>
+
+  <!-- Vowel popup + overlay -->
+  <div class="overlay" id="overlay"></div>
+  <div class="vowel-box" id="vowelBox">
+    <h3>Select a Vowel</h3>
+    <div class="vowels">
+      <div class="vowel" data-vowel="A">A</div>
+      <div class="vowel" data-vowel="E">E</div>
+      <div class="vowel" data-vowel="I">I</div>
+      <div class="vowel" data-vowel="O">O</div>
+      <div class="vowel" data-vowel="U">U</div>
+    </div>
+    <button class="close-btn" id="closeBoxBtn">Cancel</button>
+  </div>
+
+  <script>
+    
+    const PUZZLE_DATA = [
+      { puzzle: "LA SALLE UNIVERSITY", clue: "A University in Philadelphia" },
+      { puzzle: "TEAM FOUR", clue: "A group working together" },
+      { puzzle: "MOON KNIGHT", clue: "A Marvel superhero" },
+      { puzzle: "POISON IVY", clue: "A DC Comics villain and a plant" },
+      { puzzle: "KILLER CROC", clue: "A reptilian Batman villain" },
+      { puzzle: "LUCKI", clue: "Popular Chicago rapper" },
+    ];
+
+    let puzzle = "";
+    let clue = "";
+    let board = [];
+    let guessedLetters = [];
+
+    // DOM references
+    const boardElement = document.getElementById("puzzle-board");
+    const clueElement = document.getElementById("clue-text");
+
+    
+    //CONSONANT GUESSING SECTION
+    
+    function choosePuzzle() {
+      const randomIndex = Math.floor(Math.random() * PUZZLE_DATA.length);
+      const chosen = PUZZLE_DATA[randomIndex];
+      puzzle = chosen.puzzle.toUpperCase();
+      clue = chosen.clue;
+      board = puzzle.split("").map(char => (char === " " ? " " : "_"));
+      guessedLetters = [];
+      renderBoard();
+      renderClue();
+      resetLetterButtons();
+      enablePurchaseBtn();
+    }
+
+    function renderBoard() {
+      boardElement.textContent = board.join(" ");
+    }
+
+    function renderClue() {
+      clueElement.textContent = clue;
+    }
+
+    function createLetterButtons() {
+      const lettersDiv = document.getElementById("letters");
+      lettersDiv.innerHTML = "";
+      const vowels = ["A", "E", "I", "O", "U"];
+      for (let i = 65; i <= 90; i++) {
+        const letter = String.fromCharCode(i);
+        if (vowels.includes(letter)) continue; // skip vowels
+        const btn = document.createElement("button");
+        btn.textContent = letter;
+        btn.onclick = () => guessLetter(letter, btn);
+        lettersDiv.appendChild(btn);
+      }
+    }
+
+    function resetLetterButtons() {
+      document.querySelectorAll("#letters button").forEach(btn => {
+        btn.disabled = false;
+        btn.style.backgroundColor = "";
+      });
+    }
+
+    function guessLetter(letter, btn) {
+      btn.disabled = true;
+      guessedLetters.push(letter);
+      let correct = false;
+
+      for (let i = 0; i < puzzle.length; i++) {
+        if (puzzle[i] === " ") continue;
+        if (puzzle[i] === letter) {
+          board[i] = letter;
+          correct = true;
+        }
+      }
+
+      renderBoard();
+      btn.style.backgroundColor = correct ? "#2ecc71" : "#e74c3c";
+
+      if (!board.includes("_")) {
+        setTimeout(() => alert("🎉 You solved the puzzle!"), 200);
+        disablePurchaseBtn();
+      }
+    }
+
+    
+    //VOWEL PURCHASING SYSTEM
+    
+    const VOWEL_COST = 250;
+    let money = 1000; // <-- To be linked with Banking system later
+    const moneyDisplay = document.getElementById("money");
+    const notification = document.getElementById("notification");
+    const purchaseBtn = document.getElementById("purchaseBtn");
+    const overlay = document.getElementById("overlay");
+    const vowelBox = document.getElementById("vowelBox");
+    const closeBoxBtn = document.getElementById("closeBoxBtn");
+
+    moneyDisplay.textContent = money;
+
+    function enablePurchaseBtn() {
+      purchaseBtn.disabled = false;
+    }
+
+    function disablePurchaseBtn() {
+      purchaseBtn.disabled = true;
+    }
+
+    // Open vowel popup
+    purchaseBtn.addEventListener("click", () => {
+      notification.textContent = "";
+      vowelBox.style.display = "block";
+      overlay.style.display = "block";
+    });
+
+    // Close vowel popup
+    closeBoxBtn.addEventListener("click", closeVowelBox);
+    overlay.addEventListener("click", closeVowelBox);
+
+    function closeVowelBox() {
+      vowelBox.style.display = "none";
+      overlay.style.display = "none";
+    }
+
+    // Handle vowel selection
+    document.querySelectorAll(".vowel").forEach(vowelEl => {
+      vowelEl.addEventListener("click", () => {
+        const vowel = vowelEl.dataset.vowel;
+        purchaseVowel(vowel);
+      });
+    });
+
+    function purchaseVowel(vowel) {
+      // --- BANKING SYSTEM INTEGRATION POINT ---
+      // Replace this with banking logic:
+      // Example:
+      // if (!BankSystem.hasEnoughFunds(VOWEL_COST)) return error
+      // BankSystem.deduct(VOWEL_COST);
+      // money = BankSystem.getBalance();
+
+      if (money < VOWEL_COST) {
+        notification.textContent = "❌ Not enough funds!";
+        closeVowelBox();
+        return;
+      }
+
+      money -= VOWEL_COST;
+      moneyDisplay.textContent = money;
+      let found = false;
+
+      for (let i = 0; i < puzzle.length; i++) {
+        if (puzzle[i] === vowel) {
+          board[i] = vowel;
+          found = true;
+        }
+      }
+
+      if (found) {
+        notification.textContent = `✅ The vowel "${vowel}" was revealed!`;
+      } else {
+        notification.textContent = `❌ The puzzle has no "${vowel}".`;
+      }
+
+      renderBoard();
+      closeVowelBox();
+
+      if (!board.includes("_")) {
+        disablePurchaseBtn();
+        setTimeout(() => alert("🎉 You solved the puzzle!"), 200);
+      }
+    }
+
+   
+    //INITIALIZATION
+    
+    document.getElementById("reset").onclick = choosePuzzle;
+    createLetterButtons();
+    choosePuzzle();
+
+    /****************************************************
+     *INTEGRATION NOTES 
+     *
+     * (BANKING SYSTEM)
+     * ----------------
+     * - Replace the "money" variable with a shared balance variable.
+     * - Replace the deduction logic in purchaseVowel() with your
+     *   real BankSystem.deduct(VOWEL_COST) or equivalent.*/
+     
+  </script>
+</body>
+</html>
+
+
