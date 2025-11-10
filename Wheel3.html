@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Spinning Wheel Game — Bankrupt / Lose a Turn / Randomize</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  :root { --bg:#0b0b0b; --card:#111; --accent:#2fe; --muted:#999; }
+  html,body{height:100%;margin:0;background:linear-gradient(180deg,#070708,var(--bg));font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;color:#eee;display:flex;align-items:center;justify-content:center}
+  .wrap{width:760px;padding:18px;background:linear-gradient(180deg,var(--card),#0b0b0b);border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.6);display:grid;grid-template-columns:420px 1fr;gap:18px}
+  svg{width:100%;height:auto;border-radius:8px;background:transparent;display:block}
+  .pointer{width:0;height:0;margin:0 auto 12px;border-left:18px solid transparent;border-right:18px solid transparent;border-bottom:30px solid #111;filter:drop-shadow(0 4px 8px rgba(0,0,0,.6))}
+  .controls{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:8px}
+  button{background:var(--accent);color:#002;border:0;padding:10px 12px;border-radius:8px;font-weight:700;cursor:pointer}
+  button:disabled{opacity:.6;cursor:not-allowed}
+  .panel{background:#0f0f10;padding:12px;border-radius:10px}
+  .players{display:flex;flex-direction:column;gap:8px}
+  .player{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px;border-radius:8px;background:linear-gradient(180deg,#0b0b0b,#121212)}
+  .small{font-size:13px;color:var(--muted)}
+  .result{font-weight:800;margin-top:8px}
+  .highlight { outline: 3px solid gold; border-radius: 6px; }
+</style>
+</head>
+<body>
+  <div class="wrap" role="application" aria-label="Wheel game UI">
+    <div>
+      <div class="pointer" aria-hidden="true"></div>
+      <svg id="wheel" viewBox="0 0 400 400" role="img" aria-label="Game wheel"></svg>
+
+      <div class="controls">
+        <button id="spinBtn">Spin</button>
+        <button id="nextBtn">End Turn</button>
+        <button id="randomizeBtn">Randomize Values Now</button>
+      </div>
+
+      <div class="panel small" style="margin-top:12px">
+        <div>Last result: <span id="result">—</span></div>
+        <div class="small" style="margin-top:6px">Note: Bankrupt sets balance to zero by default. Lose a Turn will skip next turn.</div>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div style="font-weight:800">Players</div>
+          <div class="small">Current: <strong id="currentPlayerLabel">—</strong></div>
+        </div>
+        <div class="players" id="playersList" style="margin-top:10px"></div>
+
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <input id="newPlayerName" placeholder="New player name" style="flex:1;padding:8px;border-radius:8px;border:0;background:#0b0b0b;color:#eee">
+          <button id="addPlayerBtn">Add</button>
+        </div>
+        <div style="margin-top:10px" class="small">Balances persist in localStorage (key: <code>wheelGameState</code>).</div>
+      </div>
+
+      <div class="panel" style="margin-top:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div style="font-weight:700">Game Settings</div>
+          <div class="small">Bankrupt action:
+            <select id="bankruptAction">
+              <option value="zero">Set balance to 0</option>
+              <option value="deduct">Deduct last spin amount</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="margin-top:10px" class="small">Integration hooks: <code>WheelGame.onBalanceChange</code>, <code>WheelGame.onTurnChange</code></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+/* ==================== FRAMEWORK / GAME LOGIC ====================
+ - Single source of truth: `segments` array. Each segment must have:
+    { type: 'value'|'bankrupt'|'lose'|'spinAgain', text, color, value? }
+ - After each spin, we call applyOutcome on the current player.
+ - Special slices:
+    - 'value': adds to player's balance
+    - 'bankrupt': applies bankruptAction (zero or deduct)
+    - 'lose': marks player.skipNext = true
+    - 'spinAgain': grants an immediate extra spin (doesn't advance turn)
+ - After each spin, numeric 'value' segments are randomized.
+ - Exposes integration hooks: WheelGame.onBalanceChange, WheelGame.onTurnChange
+*/
+
+// ----------------- Initial segments (special labels included) -----------------
+let segments = [
+  { type:'value', text:'750', color:'#ffb3ba', value:750 },
+  { type:'value', text:'700', color:'#ffdfba', value:700 },
+  { type:'value', text:'800', color:'#ffffba', value:800 },
+  { type:'value', text:'1200', color:'#baffc9', value:1200 },
+  { type:'bankrupt', text:'Bankrupt', color:'#ff8888' },
+  { type:'value', text:'2500', color:'#ffdfba', value:2500 },
+  { type:'value', text:'500', color:'#ffffba', value:500 },
+  { type:'value', text:'1000', color:'#baffc9', value:1000 },
+  { type:'spinAgain', text:'Spin Again', color:'#ffdba6' },
+  { type:'bankrupt', text:'Bankrupt', color:'#ff8888' },
+  { type:'value', text:'950', color:'#ffb3ba', value:950 },
+  { type:'value', text:'1300', color:'#ffb3ba', value:1300 },
+  { type:'value', text:'1500', color:'#ffb3ba', value:1500 },
+  { type:'value', text:'400', color:'#ffb3ba', value:400 },
+  { type:'value', text:'500', color:'#ffffba', value:500 },
+  { type:'value', text:'1000', color:'#baffc9', value:1000 },
+  { type:'value', text:'2000', color:'#ffffba', value:2000 },
+  { type:'lose', text:'Lose a Turn', color:'#d6a3a3' },
+  { type:'value', text:'950', color:'#ffb3ba', value:950 },
+  { type:'value', text:'750', color:'#ffb3ba', value:750 },
+  { type:'value', text:'1250', color:'#ffb3ba', value:1250 },
+  { type:'value', text:'400', color:'#ffb3ba', value:400 },
+];
+
+// ----------------- Game state & persistence -----------------
+const STORAGE_KEY = 'wheelGameState';
+let state = loadState() || {
+  players: [
+    { name: 'Lucys', balance: 0, skipNext: false },
+    { name: 'Kali', balance: 0, skipNext: false }
+  ],
+  currentPlayerIndex: 0
+};
+
+// expose hooks for the other developer to connect
+window.WheelGame = {
+  onBalanceChange: null,  // (playerIndex, newBalance) => {}
+  onTurnChange: null      // (currentIndex) => {}
+};
+
+// bankrupt action setting default (zero or deduct)
+const bankruptActionSelect = document.getElementById('bankruptAction');
+bankruptActionSelect.value = 'zero';
+
+// ----------------- DOM refs -----------------
+const svg = document.getElementById('wheel');
+const spinBtn = document.getElementById('spinBtn');
+const nextBtn = document.getElementById('nextBtn');
+const randomizeBtn = document.getElementById('randomizeBtn');
+const playersList = document.getElementById('playersList');
+const currentPlayerLabel = document.getElementById('currentPlayerLabel');
+const resultSpan = document.getElementById('result');
+const addPlayerBtn = document.getElementById('addPlayerBtn');
+const newPlayerNameInput = document.getElementById('newPlayerName');
+
+// ----------------- Geometry config -----------------
+const CX = 200, CY = 200, R = 170;
+const SLICES = segments.length;
+const SLICE_ANGLE = 360 / SLICES;
+
+// ----------------- Utilities -----------------
+function saveState() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch { return null; }
+}
+
+function polarToCartesian(cx, cy, r, angleDeg) {
+  const rad = (angleDeg - 90) * Math.PI / 180;
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+}
+
+// ----------------- Build wheel (SVG) -----------------
+function buildWheel() {
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+  g.setAttribute('class','wheel-g');
+  g.style.transformOrigin = '50% 50%';
+
+  segments.forEach((seg, i) => {
+    const start = i * SLICE_ANGLE;
+    const end = start + SLICE_ANGLE;
+    const p1 = polarToCartesian(CX, CY, R, start);
+    const p2 = polarToCartesian(CX, CY, R, end);
+    const largeArc = SLICE_ANGLE > 180 ? 1 : 0;
+    const d = `M ${CX} ${CY} L ${p1.x.toFixed(3)} ${p1.y.toFixed(3)} A ${R} ${R} 0 ${largeArc} 1 ${p2.x.toFixed(3)} ${p2.y.toFixed(3)} Z`;
+    const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+    path.setAttribute('d', d);
+    path.setAttribute('fill', seg.color || '#888');
+    path.setAttribute('stroke', '#111');
+    path.setAttribute('stroke-width', '1');
+    g.appendChild(path);
+
+    const mid = start + SLICE_ANGLE / 2;
+    const lblPt = polarToCartesian(CX, CY, R * 0.65, mid);
+    const text = document.createElementNS('http://www.w3.org/2000/svg','text');
+    text.setAttribute('x', lblPt.x.toFixed(3));
+    text.setAttribute('y', lblPt.y.toFixed(3));
+    text.setAttribute('text-anchor', 'middle');
+    text.setAttribute('dominant-baseline', 'middle');
+    text.setAttribute('font-size', '14');
+    text.setAttribute('fill', '#111');
+    text.textContent = seg.text;
+    // rotate text so it lines up with segment
+    text.setAttribute('transform', `rotate(${mid}, ${lblPt.x.toFixed(3)}, ${lblPt.y.toFixed(3)})`);
+    g.appendChild(text);
+  });
+
+  svg.appendChild(g);
+  return g;
+}
+
+// ----------------- Winner mapping -----------------
+function indexFromAngle(angleDeg) {
+  const a = ((angleDeg % 360) + 360) % 360;
+  const pointerAngle = (360 - a) % 360;
+  return Math.floor(pointerAngle / SLICE_ANGLE) % SLICES;
+}
+
+// ----------------- Players UI -----------------
+function renderPlayers() {
+  playersList.innerHTML = '';
+  state.players.forEach((p, idx) => {
+    const el = document.createElement('div');
+    el.className = 'player' + (idx === state.currentPlayerIndex ? ' highlight' : '');
+    el.innerHTML = `<div><strong>${p.name}</strong>${p.skipNext ? ' <span class="small">(skip next)</span>' : ''}</div>
+                    <div style="text-align:right"><div style="font-weight:800">${p.balance}</div></div>`;
+    playersList.appendChild(el);
+  });
+  currentPlayerLabel.textContent = state.players[state.currentPlayerIndex]?.name || '—';
+  // integration hook
+  if (typeof window.WheelGame.onTurnChange === 'function') {
+    try { window.WheelGame.onTurnChange(state.currentPlayerIndex); } catch {}
+  }
+}
+
+// ----------------- Turn logic -----------------
+function advanceTurn() {
+  // Advance to next player who is not eliminated (simple round-robin)
+  const n = state.players.length;
+  if (n === 0) return;
+  let next = (state.currentPlayerIndex + 1) % n;
+  // if next has skipNext true, consume skipNext and move on
+  let attempts = 0;
+  while (state.players[next].skipNext && attempts < n) {
+    state.players[next].skipNext = false; // skip it now
+    next = (next + 1) % n;
+    attempts++;
+  }
+  state.currentPlayerIndex = next;
+  saveState();
+  renderPlayers();
+}
+
+// ----------------- Apply outcome (core) -----------------
+function applyOutcome(idx, landedIdx, lastSpinAmount = 0) {
+  // idx = current player index
+  const seg = segments[landedIdx];
+  const player = state.players[idx];
+  if (!seg || !player) return;
+
+  // result string and updates
+  let resultText = '';
+  let balanceChanged = false;
+  let oldBalance = player.balance;
+
+  if (seg.type === 'value') {
+    const val = Number(seg.value || parseInt(seg.text,10) || 0);
+    player.balance = (player.balance || 0) + val;
+    resultText = `${player.name} won ${val}!`;
+    balanceChanged = true;
+  } else if (seg.type === 'bankrupt') {
+    const action = bankruptActionSelect.value;
+    if (action === 'zero') {
+      player.balance = 0;
+      resultText = `${player.name} went BANKRUPT! Balance set to 0.`;
+    } else if (action === 'deduct') {
+      player.balance = Math.max(0, (player.balance || 0) - lastSpinAmount);
+      resultText = `${player.name} went BANKRUPT! Deducted ${lastSpinAmount}.`;
+    }
+    balanceChanged = true;
+  } else if (seg.type === 'lose') {
+    player.skipNext = true;
+    resultText = `${player.name} landed on LOSE A TURN — next turn will be skipped.`;
+  } else if (seg.type === 'spinAgain') {
+    resultText = `${player.name} gets to spin again!`;
+  } else {
+    resultText = `${player.name} landed on ${seg.text}.`;
+  }
+
+  // save + UI updates
+  saveState();
+  renderPlayers();
+
+  // integration hook for balance change
+  if (balanceChanged && typeof window.WheelGame.onBalanceChange === 'function') {
+    try { window.WheelGame.onBalanceChange(idx, player.balance, { oldBalance }); } catch {}
+  }
+
+  // show result
+  resultSpan.textContent = resultText;
+
+  return { seg, resultText, balanceChanged };
+}
+
+// ----------------- Randomize numeric values -----------------
+function randomizeValueSegments() {
+  // collect numeric values
+  const valueSegIndices = segments.map((s, i) => ({s,i})).filter(x => x.s.type === 'value');
+  // extract values
+  const values = valueSegIndices.map(x => Number(x.s.value || parseInt(x.s.text,10) || 0));
+  // shuffle
+  for (let i = values.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [values[i], values[j]] = [values[j], values[i]];
+  }
+  // reassign shuffled values & update text to match
+  valueSegIndices.forEach((x, idx) => {
+    const v = values[idx];
+    segments[x.i].value = v;
+    segments[x.i].text = String(v);
+  });
+  buildAndRefresh();
+}
+
+// ----------------- Spin animation -----------------
+function createSpinner(gElement) {
+  let currentAngle = 0;
+  let spinning = false;
+  const easeOutCubic = t => 1 - Math.pow(1 - t, 3);
+  let lastSpinAmount = 0;
+
+  async function spin() {
+    if (spinning) return null;
+    if (state.players.length === 0) { alert('Add players first'); return; }
+
+    spinning = true;
+    spinBtn.disabled = true;
+    nextBtn.disabled = true;
+    resultSpan.textContent = 'Spinning…';
+
+    const start = currentAngle;
+    const turns = 3 + Math.random() * 2;
+    const finalOffset = Math.random() * 360;
+    const target = start + turns * 360 + finalOffset;
+    const duration = 2400 + Math.random() * 1000;
+    const t0 = performance.now();
+
+    return new Promise(resolve => {
+      function frame(now) {
+        const elapsed = now - t0;
+        const p = Math.min(1, elapsed / duration);
+        const eased = easeOutCubic(p);
+        const angle = start + (target - start) * eased;
+        gElement.style.transform = `rotate(${angle}deg)`;
+
+        if (p < 1) {
+          requestAnimationFrame(frame);
+        } else {
+          // finalize
+          currentAngle = target;
+          gElement.style.transform = `rotate(${currentAngle}deg)`;
+          const winnerIdx = indexFromAngle(currentAngle);
+          highlightSlice(winnerIdx);
+          // compute last spin amount if numeric, else 0
+          const seg = segments[winnerIdx];
+          const amt = seg.type === 'value' ? Number(seg.value || parseInt(seg.text,10) || 0) : 0;
+          lastSpinAmount = amt;
+          // apply outcome
+          const currentIdx = state.currentPlayerIndex;
+          const outcome = applyOutcome(currentIdx, winnerIdx, lastSpinAmount);
+
+          // If the outcome was spinAgain, allow immediate re-spin (do not advance turn)
+          if (segments[winnerIdx].type === 'spinAgain') {
+            // slight delay then allow re-spin
+            setTimeout(() => {
+              spinning = false;
+              spinBtn.disabled = false;
+              nextBtn.disabled = false;
+            }, 600);
+          } else {
+            // after normal outcome, randomize numeric segments & advance turn
+            setTimeout(() => {
+              randomizeValueSegments();
+              advanceTurn();
+              spinning = false;
+              spinBtn.disabled = false;
+              nextBtn.disabled = false;
+            }, 600);
+          }
+
+          resolve({ winnerIdx, outcome });
+        }
+      }
+      requestAnimationFrame(frame);
+    });
+  }
+
+  return { spin };
+}
+
+// ----------------- UI helpers -----------------
+function highlightSlice(idx) {
+  const paths = svg.querySelectorAll('path');
+  paths.forEach((p, i) => {
+    p.setAttribute('stroke-width', i === idx ? '3' : '1');
+    p.setAttribute('stroke', i === idx ? '#fff' : '#111');
+  });
+}
+
+function buildAndRefresh() {
+  const group = buildWheel();
+  renderPlayers();
+  // clear highlight and reset result
+  resultSpan.textContent = resultSpan.textContent || '—';
+  highlightSlice(-1);
+  return group;
+}
+
+// ----------------- Buttons + interactions -----------------
+const wheelGroup = buildAndRefresh();
+const spinner = createSpinner(wheelGroup);
+
+spinBtn.addEventListener('click', () => spinner.spin());
+nextBtn.addEventListener('click', () => {
+  advanceTurn();
+});
+randomizeBtn.addEventListener('click', () => randomizeValueSegments());
+
+addPlayerBtn.addEventListener('click', () => {
+  const name = (newPlayerNameInput.value || '').trim();
+  if (!name) return;
+  state.players.push({ name, balance: 0, skipNext: false });
+  newPlayerNameInput.value = '';
+  saveState();
+  renderPlayers();
+});
+
+// initial UI state
+renderPlayers();
+
+// ----------------- Expose some convenience for integrators -----------------
+window.WheelGame.getState = () => JSON.parse(JSON.stringify(state));
+window.WheelGame.randomizeValues = randomizeValueSegments;
+window.WheelGame.advanceTurn = advanceTurn;
+window.WheelGame.addPlayer = (name) => {
+  if (!name) return;
+  state.players.push({ name, balance: 0, skipNext: false });
+  saveState(); renderPlayers();
+};
+</script>
+</body>
+</html>
